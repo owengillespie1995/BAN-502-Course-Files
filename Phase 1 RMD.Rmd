@@ -1,0 +1,149 @@
+---
+title: "Phase 1"
+author: "Owen Gillespie"
+date: "2025-06-15"
+output:
+  word_document: default
+  pdf_document: default
+---
+## Library Download / Data Download
+```{r}
+library(tidyverse)
+library(naniar)
+library(readr)
+getwd()
+setwd("C:/Users/oweng/Desktop/UNCW/MIS 502/Final Project")
+train <- read_csv("C:/Users/oweng/Desktop/UNCW/MIS 502/Final Project/train.csv")
+```
+
+## Missing Data
+```{r}
+gg_miss_var(train)
+train_loading_na <- train %>%
+  drop_na(loading)
+```
+```{r}
+library(dplyr)
+train <- train %>%
+mutate(across(where(is_character), as_factor))
+```
+
+
+## Visualization 1 - Product Codes that Failed vs Pass
+```{r}
+train_counts <- train %>%
+  count(product_code, failure)
+
+train_percent <- train %>%
+    count(product_code, failure) %>%
+  group_by(product_code) %>%
+  mutate(percent = n / sum(n) * 100)
+
+train %>%
+  count(product_code, failure) %>%
+  ggplot(aes(x = product_code, y = n, fill = failure)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("skyblue","red"))+
+  geom_text(aes(label = n),position = position_dodge(width = 0.8),vjust = -0.5, size = 3) +
+  labs(title = "Failure Count by Product Code",x = "Product Code",y = "Count",fill = "Failure Status") +
+  theme_classic()
+
+```
+# Visualization 2 - Loading and Failure
+```{r}
+ggplot(train_loading_na, aes(x = product_code, y = loading, fill = failure)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  labs(title = "Loading by Product Code and Failure", y = "Loading", x = "Product Code") +
+  scale_fill_manual(values = c("skyblue","red"))+
+  theme_classic()
+```
+## Visulaization 3 - total pass / fail
+
+```{r}
+failure_counts <- train %>%
+  group_by(failure) %>%
+  summarise(count = n()) %>%
+  mutate(percent = round(count / sum(count)*100, 0))
+
+ggplot(train, aes(x = failure, fill = failure)) +
+  geom_bar() +
+  labs(title = "Failed vs Passed Products", x = "Failure Status", y = "Count", fill = "Failure") +
+  geom_text(stat = "count", 
+            aes(label = paste0(round(..count../sum(..count..) * 100, 0), "%")),
+            vjust = -.5)+
+  scale_fill_manual(values = c("No" = "skyblue", "Yes" = "red")) +
+  theme_classic()
+failure_counts$count
+```
+
+## Visualization 4 - Histogram comparing distribution of loading and product code.
+
+```{r}
+ggplot(train, aes(x = loading, fill = failure)) +
+  geom_histogram(binwidth = 3, position = "identity", alpha = 0.3) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Distribution of Loading Values by Failure Status",
+       x = "Loading", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+##Visualization 5 histograms per product code based on loading that passed and failed
+```{r}
+ggplot(train, aes(x = loading, fill = failure)) +
+  geom_histogram(position = "identity", alpha = 0.3, bins = 30) +
+  facet_wrap(~ product_code) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Loading Distribution by Product Code and Failure Status",
+       x = "Loading", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+##Visualization 6 - Scatter plot of failure on loading per product code
+```{r}
+train %>%
+  ggplot(aes(x = product_code, y = loading, color = failure)) +
+  geom_jitter(width = 0.3, alpha = 0.3) +
+  scale_color_manual(values = c("No" = "skyblue", "Yes" = "red"))+
+  labs(title = "Scatterplot of Loading by Product and Failure", x = "Product Code", y = "Loading", fill = "Failure") +
+  theme_classic()
+```
+##Visualization 7 - Density plot per product code 
+```{r}
+train %>%
+  ggplot(aes(x = loading, fill = failure)) +
+  geom_density(alpha = 0.3) +
+  facet_wrap(~product_code)+
+  scale_fill_manual(values = c("skyblue", "red"))+
+  labs(title = "Density Plot of Loading by Failure Status", x = "Loading", y = "Density", fill = "Failure") +
+  theme_minimal()
+```
+##Visualization 8 - Attribute 2 Grouped Bar Pass / Fail
+```{r}
+ggplot(train, aes(x = attribute_2, fill = failure)) +
+  geom_bar(position = "dodge") +
+  geom_text(stat = "count",
+    aes(label = paste0(round(after_stat(count / sum(count) * 100), 0), "%")),
+    position = position_dodge(width = 0.9), vjust = -0.5,size = 3) +
+  labs(title = "Failed vs Passed Products by Attribute 2", x = "Attribute 2", y = "Count", fill = "Failure") +
+  scale_fill_manual(values = c("No" = "skyblue", "Yes" = "red")) +
+  theme_classic()
+```
+##Visualization 9 - Attribute 3 Grouped Bar Pass / Fail
+```{r}
+ggplot(train, aes(x = attribute_3, fill = failure)) +
+  geom_bar(position = "dodge") +
+  geom_text(stat = "count",
+    aes(label = paste0(round(after_stat(count / sum(count) * 100), 0), "%")),
+    position = position_dodge(width = 0.9),vjust = -0.5,size = 3) +
+  labs(title = "Failed vs Passed Products by Attribute 3", x = "Attribute 3", y = "Count", fill = "Failure") +
+  scale_fill_manual(values = c("No" = "skyblue", "Yes" = "red")) +
+  theme_classic()
+```
+
+
+
+
+
+```
+
+
+
+

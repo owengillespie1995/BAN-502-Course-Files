@@ -1,0 +1,322 @@
+---
+title: "Phase 2 Final"
+author: "Owen Gillespie"
+date: "2025-06-28"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r}
+library(tidyverse)
+library(naniar)
+library(readr)
+library(ranger)
+library(caret)
+library(mice)
+library(VIM)
+library(glmnet)
+library(GGally) 
+library(ggcorrplot) 
+library(MASS) 
+library(leaps) 
+library(lmtest) 
+library(splines)
+library(tidymodels)
+library(dplyr)
+library(rlang)
+library(rpart) 
+library(rpart.plot) 
+library(RColorBrewer) 
+library(rattle)
+library(e1071)
+library(ROCR)
+```
+## Loading Data
+```{r}
+train <- read_csv("C:/Users/oweng/Desktop/UNCW/MIS 502/Final Project/train.csv")
+summary(train)
+test <- read_csv("C:/Users/oweng/Desktop/UNCW/MIS 502/Final Project/test.csv")
+train <- train %>%
+  mutate_if(is_character,as_factor)
+test <- test %>%
+  mutate_if(is_character,as_factor)
+```
+
+## Dropping Loading Missing Data
+```{r}
+train <- train%>%
+  drop_na(loading)
+```
+
+## imputing other missing data
+```{r}
+imputed_data = mice(train, method = "pmm", m = 5)
+train = complete(imputed_data)
+gg_miss_var(train) #Missing Data Validation
+```
+
+# Splitting the Data
+```{r}
+set.seed(123)
+data_split = initial_split(train, prop = 0.8, strata = failure)
+train_set = training(data_split)
+test_set = testing(data_split)
+```
+## Folds
+```{r}
+set.seed(123)
+rf_folds = vfold_cv(train, v = 5)
+```
+
+
+##Regression 
+```{r}
+train_recipe = recipe(failure ~ ., data = train)
+train_model <- linear_reg() %>%
+  set_engine("lm")
+lm_wflow = 
+  workflow() %>% 
+  add_model(train_model) %>% 
+  add_recipe(train_recipe)
+
+```
+
+## Random Forrest
+```{r}
+train_recipe = recipe(failure ~ ., data = train)%>%
+   step_dummy(all_nominal(), -all_outcomes())
+forrest_model <- rand_forest() %>%
+  set_engine("ranger")%>%
+  set_mode("classification")
+forrest_wflow = 
+  workflow() %>% 
+  add_model(forrest_model) %>% 
+  add_recipe(train_recipe)
+
+train_fit = fit(forrest_wflow, train)
+
+trainpredrf = predict(train_fit, train)
+head(trainpredrf)
+
+confusionMatrix(trainpredrf$.pred_class, train$failure, positive = "Yes")
+## Accuracy @ 0.9936
+
+```
+##Testing the Random Forrest
+```{r}
+testpredrf = predict(train_fit, test_set)
+head(testpredrf)
+confusionMatrix(testpredrf$.pred_class, test_set$failure, 
+                positive = "Yes")
+##Accuracy .9926
+```
+
+
+## Classification Tree
+```{r}
+train_recipe
+
+class_tree_model = decision_tree() %>% 
+  set_engine("rpart", model = TRUE) %>%
+  set_mode("classification")
+
+train2_wflow = 
+  workflow() %>% 
+  add_model(class_tree_model) %>% 
+  add_recipe(train_recipe)
+
+train2_fit = fit(train2_wflow, train)
+
+train2_fit %>%
+  extract_fit_parsnip() %>% #error code requested use of extract fit parsnip in place of pull_wkflow
+  pluck("fit") 
+
+tree = train2_fit %>% 
+  extract_fit_parsnip() %>% 
+  pluck("fit")
+rpart.plot(tree)
+
+train2_fit$fit$fit$fit$cptable
+```
+
+
+#Testing the Classification Tree
+## Only one variable, 21% of the products failed. No split in this tree. 
+```{r}
+failure_fit_test = fit(train2_wflow, data = test_set)
+tree_test = failure_fit_test %>%
+  extract_fit_parsnip() %>%
+  pluck("fit")
+rpart.plot(tree_test)
+```
+
+#Logistic Regression
+```{r}
+logreg_model = 
+  logistic_reg() %>% 
+  set_engine("glm") 
+
+train_recipe
+
+logreg_wf = workflow() %>%
+  add_recipe(train_recipe) %>% 
+  add_model(logreg_model)
+
+train3_fit = fit(logreg_wf, train)
+
+summary(train3_fit$fit$fit$fit)
+
+logreg_fit = fit(logreg_wf, data = train)
+
+logregpred = predict(train3_fit, train, type="prob")
+
+head(logreg_fit)
+
+```
+#Lasso
+```{r}
+lasso_model =
+  logistic_reg(mixture = 1,penalty = 0.01) %>% 
+  set_engine("glmnet") 
+
+train_lasso_recipe = recipe(failure ~ ., data = train) %>% 
+  step_dummy(all_nominal(), -all_outcomes()) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) 
+
+lasso_wflow =
+  workflow() %>% 
+  add_model(lasso_model) %>% 
+  add_recipe(train_lasso_recipe)
+lasso_fit = fit(lasso_wflow, train)
+
+lasso_fit %>%
+  pull_workflow_fit() %>%
+  pluck("fit")  
+```
+
+#Test Set Data Missing
+```{r}
+gg_miss_var(test)
+```
+```{r}
+imputed_test = mice(test, method = "pmm", m = 5)
+library(dplyr) 
+test_complete = complete(imputed_test)
+gg_miss_var(test_complete)
+
+testpredrf <- predict(train_fit, new_data = test)
+
+test_predictions = as_tibble(testpredrf)
+test_predictions = test %>% 
+  dplyr::select(id) %>%
+  bind_cols(testpredrf) 
+
+colnames(test_predictions) <- c("id", "failure")
+
+test_with_predictions <- bind_cols(test, test_predictions)
+write_csv(test_predictions, "submission.csv")
+```
+
+## Visualization 1
+```{r}
+test_with_predictions %>%
+  count(product_code, failure) %>%
+  ggplot(aes(x = product_code, y = n, fill = failure)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("skyblue","red"))+
+  geom_text(aes(label = n),position = position_dodge(width = 0.8),vjust = -0.5, size = 3) +
+  labs(title = "Predicted Failure Count by Product Code",x = "Product Code",y = "Count",fill = "Failure Status") +
+  theme_classic()
+```
+## Visualization 2
+
+```{r}
+ggplot(test_with_predictions, aes(x = product_code, y = loading, fill = failure)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  labs(title = "Loading by Product Code and Failure", y = "Loading", x = "Product Code") +
+  scale_fill_manual(values = c("skyblue","red"))+
+  theme_classic()
+```
+## Visualization 3
+```{r}
+ggplot(test_with_predictions, aes(x = failure, fill = failure)) +
+  geom_bar() +
+  labs(title = "Predicted Failed vs Passed Products", x = "Failure Status", y = "Count", fill = "Failure") +
+  geom_text(stat = "count", 
+            aes(label = paste0(round(..count../sum(..count..) * 100, 0), "%")),
+            vjust = -.5)+
+  scale_fill_manual(values = c("No" = "skyblue", "Yes" = "red")) +
+  theme_classic()
+
+```
+
+## Visulazation 4
+```{r}
+ggplot(test_with_predictions, aes(x = loading, fill = failure)) +
+  geom_histogram(binwidth = 3, position = "identity", alpha = 0.3) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Predicted Distribution of Loading Values by Failure Status",
+       x = "Loading", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+## Visualization 5
+```{r}
+ggplot(test_with_predictions, aes(x = loading, fill = failure)) +
+  geom_histogram(position = "identity", alpha = 0.3, bins = 30) +
+  facet_wrap(~ product_code) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Predicted Loading Distribution by Product Code and Failure Status",
+       x = "Loading", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+```{r}
+test_with_predictions %>%
+  ggplot(aes(x = product_code, y = loading, color = failure)) +
+  geom_jitter(width = 0.3, alpha = 0.3) +
+  scale_color_manual(values = c("No" = "skyblue", "Yes" = "red"))+
+  labs(title = "Scatterplot of Predicted Loading by Product and Failure", x = "Product Code", y = "Loading", fill = "Failure") +
+  theme_classic()
+```
+```{r}
+ggplot(test_with_predictions, aes(x = measurement_2, fill = failure)) +
+  geom_histogram(position = "identity", alpha = 0.3, bins = 25) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Measurement 2 Distribution by Product Code and Failure Status",
+       x = "Measurement_2", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+```{r}
+ggplot(test_with_predictions, aes(x = measurement_15, fill = failure)) +
+  geom_histogram(position = "identity", alpha = 0.3, bins = 25) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Measurement 15 Distribution by Product Code and Failure Status",
+       x = "Measurement_15", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+```{r}
+ggplot(test_with_predictions, aes(x = measurement_17, fill = failure)) +
+  geom_histogram(position = "identity", alpha = 0.3, bins = 25) +
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(title = "Measurement 17 Distribution by Product Code and Failure Status",
+       x = "Measurement_17", y = "Count", fill = "Failure") +
+  theme_classic()
+```
+```{r}
+ggplot(test_with_predictions, aes(x = measurement_2, fill = failure)) +
+  geom_bar(position = "dodge") +
+  geom_text(stat = "count",
+    aes(label = paste0(round(after_stat(count / sum(count) * 100), 0), "%")),
+    position = position_dodge(width = 0.9),vjust = -0.5,size = 3) +
+  labs(title = "Failed vs Passed Products by Measurement 2", x = "Measurement 2", y = "Count", fill = "Failure") +
+  scale_fill_manual(values = c("No" = "skyblue", "Yes" = "red")) +
+  theme_classic()
+```
+
+
+```
+
+```
+
